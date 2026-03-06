@@ -4,14 +4,14 @@ const { Client, GatewayIntentBits, Events } = require("discord.js");
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildVoiceStates
+    GatewayIntentBits.GuildVoiceStates,
+    GatewayIntentBits.GuildMembers
   ]
 });
 
-// ROLES QUI NE SERONT JAMAIS DECONNECTÉS
 const ALLOWED_ROLES = [
-  "498466121075392533",
-  "1234631516982612052"
+  "498466121075392533",   // Fonda
+  "1234631516982612052"   // Co-Fonda
 ];
 
 client.once(Events.ClientReady, () => {
@@ -19,29 +19,29 @@ client.once(Events.ClientReady, () => {
 });
 
 client.on("voiceStateUpdate", async (oldState, newState) => {
+  try {
+    if (!newState.channel) return;
+    if (oldState.channelId === newState.channelId) return;
 
-  if (!newState.channel) return;
+    const channel = newState.channel;
+    const member = newState.member;
+    if (!member) return;
 
-  const member = newState.member;
+    await member.fetch(true);
 
-  // ignore fonda / co-fonda
-  if (member.roles.cache.some(role => ALLOWED_ROLES.includes(role.id))) {
-    return;
-  }
-
-  const channel = newState.channel;
-
-  if (channel.userLimit > 0 && channel.members.size > channel.userLimit) {
-
-    try {
-      await member.voice.disconnect();
-      console.log(`${member.user.tag} déconnecté (salon plein)`);
-    } catch (err) {
-      console.log("Erreur :", err);
+    const isAllowed = member.roles.cache.some(role => ALLOWED_ROLES.includes(role.id));
+    if (isAllowed) {
+      console.log(`${member.user.tag} ignoré (Fonda/Co-Fonda)`);
+      return;
     }
 
+    if (channel.userLimit > 0 && channel.members.size > channel.userLimit) {
+      await member.voice.disconnect();
+      console.log(`${member.user.tag} déconnecté (salon plein)`);
+    }
+  } catch (err) {
+    console.error("Erreur :", err);
   }
-
 });
 
 client.login(process.env.TOKEN);
