@@ -4,8 +4,7 @@ const { Client, GatewayIntentBits, Events } = require("discord.js");
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildVoiceStates,
-    GatewayIntentBits.GuildMembers
+    GatewayIntentBits.GuildVoiceStates
   ]
 });
 
@@ -23,20 +22,22 @@ client.on("voiceStateUpdate", async (oldState, newState) => {
     if (!newState.channel) return;
     if (oldState.channelId === newState.channelId) return;
 
-    const channel = newState.channel;
     const member = newState.member;
+    const channel = newState.channel;
+
     if (!member) return;
 
-    await member.fetch(true);
+    const isAllowed = member.roles.cache.some(role =>
+      ALLOWED_ROLES.includes(role.id)
+    );
 
-    const isAllowed = member.roles.cache.some(role => ALLOWED_ROLES.includes(role.id));
     if (isAllowed) {
       console.log(`${member.user.tag} ignoré (Fonda/Co-Fonda)`);
       return;
     }
 
     if (channel.userLimit > 0 && channel.members.size > channel.userLimit) {
-      await member.voice.disconnect();
+      await member.voice.setChannel(null, "Salon plein");
       console.log(`${member.user.tag} déconnecté (salon plein)`);
     }
   } catch (err) {
