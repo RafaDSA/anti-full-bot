@@ -1,3 +1,14 @@
+const http = require("http");
+
+http.createServer((req, res) => {
+  res.write("Bot is alive");
+  res.end();
+}).listen(3000);
+
+setInterval(() => {
+  http.get("http://localhost:3000");
+}, 300000);
+
 require("dotenv").config();
 const { Client, GatewayIntentBits, Events } = require("discord.js");
 
@@ -9,8 +20,8 @@ const client = new Client({
 });
 
 const ALLOWED_ROLES = [
-  "498466121075392533",   // Fonda
-  "1234631516982612052"   // Co-Fonda
+  "498466121075392533",
+  "1234631516982612052"
 ];
 
 client.once(Events.ClientReady, () => {
