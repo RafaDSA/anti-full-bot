@@ -1,5 +1,6 @@
 import os
 import time
+import asyncio
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
@@ -10,12 +11,39 @@ from discord.ext import commands, tasks
 # --- SERVEUR HTTP (nécessaire pour Render "Web Service") ---
 # Render exige que l'app écoute sur le port fourni via la variable PORT
 # pour considérer le service comme "en ligne" (healthcheck).
+#
+# IMPORTANT : ce healthcheck doit refléter l'état RÉEL du bot, pas juste
+# "le thread HTTP répond". Sinon, si l'event loop du bot se fige (ex: un
+# appel réseau bloqué indéfiniment), Render continue de voir un 200 OK
+# en continu et ne redémarre jamais le service, alors que le bot est mort
+# côté Discord. On expose donc un timestamp "last_alive" mis à jour
+# régulièrement par la boucle anti-AFK et par on_ready ; si ce timestamp
+# est trop vieux, le healthcheck renvoie une erreur 503.
+last_alive = time.time()
+STALE_THRESHOLD = 120  # secondes sans activité = on considère le bot figé
+
+def mark_alive():
+    global last_alive
+    last_alive = time.time()
+
 class HealthHandler(BaseHTTPRequestHandler):
     def do_GET(self):
-        self.send_response(200)
-        self.send_header("Content-type", "text/plain")
-        self.end_headers()
-        self.wfile.write(b"Bot is alive")
+        age = time.time() - last_alive
+        is_stale = age > STALE_THRESHOLD
+        is_discord_connected = bot.is_ready() and not bot.is_closed()
+
+        if is_stale or not is_discord_connected:
+            self.send_response(503)
+            self.send_header("Content-type", "text/plain")
+            self.end_headers()
+            self.wfile.write(
+                f"Bot unhealthy (stale={is_stale}, discord_connected={is_discord_connected}, age={age:.0f}s)".encode()
+            )
+        else:
+            self.send_response(200)
+            self.send_header("Content-type", "text/plain")
+            self.end_headers()
+            self.wfile.write(b"Bot is alive")
 
     def log_message(self, format, *args):
         # Evite de spammer les logs Render à chaque requête de healthcheck
@@ -85,6 +113,7 @@ ALONE_TIMEOUT = 900
 
 @bot.event
 async def on_ready():
+    mark_alive()
     print(f"✅ Bot connecté sous {bot.user}")
     # on_ready peut être redéclenché après une reconnexion complète au Gateway.
     # is_running() protège déjà contre les doublons dans la plupart des cas,
@@ -130,7 +159,10 @@ async def on_voice_state_update(member, before, after):
             category=category,
             user_limit=3
         )
-        await member.move_to(new_channel)
+        try:
+            await asyncio.wait_for(member.move_to(new_channel), timeout=10)
+        except asyncio.TimeoutError:
+            print(f"⏱️ Timeout move_to (création salon Trio) pour {member}")
 
     # 2. Suppression des salons Trio vides
     if before.channel and before.channel.name.startswith("🦎 ᵀʳⁱᵒ"):
@@ -145,8 +177,10 @@ async def on_voice_state_update(member, before, after):
         if not has_allowed_overflow_role(member):
             if channel.user_limit and len(channel.members) > channel.user_limit:
                 try:
-                    await member.move_to(None, reason="Salon plein")
+                    await asyncio.wait_for(member.move_to(None, reason="Salon plein"), timeout=10)
                     print(f"🚪 {member.display_name} déconnecté (salon plein: {channel.name})")
+                except asyncio.TimeoutError:
+                    print(f"⏱️ Timeout move_to (salon plein) pour {member}")
                 except Exception as e:
                     print(f"Erreur déconnexion (salon plein) {member}: {e}")
         else:
@@ -156,6 +190,7 @@ async def on_voice_state_update(member, before, after):
 # --- BOUCLE ANTI-AFK ---
 @tasks.loop(seconds=15)
 async def check_afk_timeouts():
+    mark_alive()
     now = time.time()
     active_member_ids = set()
 
@@ -187,7 +222,12 @@ async def check_afk_timeouts():
                     continue
 
                 try:
-                    member = await guild.fetch_member(raw_member.id)
+                    member = await asyncio.wait_for(
+                        guild.fetch_member(raw_member.id), timeout=10
+                    )
+                except asyncio.TimeoutError:
+                    print(f"⏱️ Timeout fetch_member {raw_member}, on retentera au prochain tick")
+                    continue
                 except discord.NotFound:
                     # Le membre a quitté le serveur entre-temps
                     muted_users.pop(raw_member.id, None)
@@ -217,8 +257,10 @@ async def check_afk_timeouts():
 
                     if now - deafened_users[member.id] >= 900:
                         try:
-                            await member.move_to(None)
+                            await asyncio.wait_for(member.move_to(None), timeout=10)
                             print(f"🎧 {member.display_name} déconnecté (Casque coupé > 15 min)")
+                        except asyncio.TimeoutError:
+                            print(f"⏱️ Timeout move_to (deaf) pour {member}")
                         except Exception as e:
                             print(f"Erreur déconnexion {member}: {e}")
                         deafened_users.pop(member.id, None)
@@ -231,8 +273,10 @@ async def check_afk_timeouts():
 
                     if now - muted_users[member.id] >= 1800:
                         try:
-                            await member.move_to(None)
+                            await asyncio.wait_for(member.move_to(None), timeout=10)
                             print(f"🎤 {member.display_name} déconnecté (Micro coupé > 30 min)")
+                        except asyncio.TimeoutError:
+                            print(f"⏱️ Timeout move_to (mute) pour {member}")
                         except Exception as e:
                             print(f"Erreur déconnexion {member}: {e}")
                         muted_users.pop(member.id, None)
@@ -248,8 +292,10 @@ async def check_afk_timeouts():
 
                     if now - alone_users[member.id] >= ALONE_TIMEOUT:
                         try:
-                            await member.move_to(None)
+                            await asyncio.wait_for(member.move_to(None), timeout=10)
                             print(f"👤 {member.display_name} déconnecté (Seul en vocal > 15 min)")
+                        except asyncio.TimeoutError:
+                            print(f"⏱️ Timeout move_to (alone) pour {member}")
                         except Exception as e:
                             print(f"Erreur déconnexion {member}: {e}")
                         alone_users.pop(member.id, None)
