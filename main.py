@@ -27,23 +27,36 @@ def mark_alive():
     last_alive = time.time()
 
 class HealthHandler(BaseHTTPRequestHandler):
-    def do_GET(self):
+    def _respond(self, send_body: bool):
         age = time.time() - last_alive
         is_stale = age > STALE_THRESHOLD
         is_discord_connected = bot.is_ready() and not bot.is_closed()
 
         if is_stale or not is_discord_connected:
-            self.send_response(503)
-            self.send_header("Content-type", "text/plain")
-            self.end_headers()
-            self.wfile.write(
-                f"Bot unhealthy (stale={is_stale}, discord_connected={is_discord_connected}, age={age:.0f}s)".encode()
-            )
+            status = 503
+            body = (
+                f"Bot unhealthy (stale={is_stale}, "
+                f"discord_connected={is_discord_connected}, age={age:.0f}s)"
+            ).encode()
         else:
-            self.send_response(200)
-            self.send_header("Content-type", "text/plain")
-            self.end_headers()
-            self.wfile.write(b"Bot is alive")
+            status = 200
+            body = b"Bot is alive"
+
+        self.send_response(status)
+        self.send_header("Content-type", "text/plain")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        if send_body:
+            self.wfile.write(body)
+
+    def do_GET(self):
+        self._respond(send_body=True)
+
+    # UptimeRobot (et d'autres monitors) envoient des requêtes HEAD par défaut.
+    # Sans do_HEAD, Python répond 501 "Unsupported method" => monitor "Down"
+    # en permanence, même quand le bot tourne très bien.
+    def do_HEAD(self):
+        self._respond(send_body=False)
 
     def log_message(self, format, *args):
         # Evite de spammer les logs Render à chaque requête de healthcheck
