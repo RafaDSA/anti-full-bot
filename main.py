@@ -91,6 +91,7 @@ EXCLUDED_ROLE_IDS = {
 ALLOWED_OVERFLOW_ROLE_IDS = {
     498466121075392533,   # Fonda
     1234631516982612052,  # Co fonda
+    563113152510951459,   # Staff
 }
 
 # Passe à True pour voir dans les logs quels rôles sont vus pour chaque membre
@@ -198,7 +199,7 @@ async def on_voice_state_update(member, before, after):
                 except Exception as e:
                     print(f"Erreur déconnexion (salon plein) {member}: {e}")
         else:
-            print(f"{member} ignoré pour la vérif salon plein (Fonda/Co-fonda)")
+            print(f"{member} ignoré pour la vérif salon plein (Fonda/Co-fonda/Staff)")
 
 
 # --- BOUCLE ANTI-AFK ---
