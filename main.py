@@ -94,6 +94,13 @@ ALLOWED_OVERFLOW_ROLE_IDS = {
     563113152510951459,   # Staff
 }
 
+# IDs supplémentaires autorisés à rejoindre un salon plein.
+# Le check marche que ce soit un ID de MEMBRE ou un ID de RÔLE.
+ALLOWED_OVERFLOW_EXTRA_IDS = {
+    1574900003644637266,
+    1574899009028497619,
+}
+
 # Passe à True pour voir dans les logs quels rôles sont vus pour chaque membre
 DEBUG_ROLES = False
 
@@ -115,8 +122,10 @@ def has_excluded_role(member) -> bool:
     return excluded
 
 def has_allowed_overflow_role(member) -> bool:
+    if member.id in ALLOWED_OVERFLOW_EXTRA_IDS:
+        return True
     role_ids = {role.id for role in member.roles}
-    return bool(role_ids & ALLOWED_OVERFLOW_ROLE_IDS)
+    return bool(role_ids & (ALLOWED_OVERFLOW_ROLE_IDS | ALLOWED_OVERFLOW_EXTRA_IDS))
 
 # Dictionnaires pour suivre les temps
 muted_users = {}
